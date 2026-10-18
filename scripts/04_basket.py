@@ -2,34 +2,25 @@
 
 Each order is a basket of distinct products. Minimum support 1% of orders (about 366 orders),
 the same threshold as vw_basket_pairs, so every frequent pair must match the SQL view exactly.
-Rules are written to table basket_rules for BI tools.
+Two more invariants: FP-Growth must find the same itemsets (all sizes) as Apriori, and every rule's
+support, confidence and lift must match a direct recount on the basket matrix.
+Rules are written to table basket_rules (defined in sql/01_schema.sql) for BI tools.
 """
 import sys
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from mlxtend.frequent_patterns import apriori, association_rules
+from mlxtend.frequent_patterns import association_rules
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from ecb import plotstyle as ps  # noqa: E402
-from ecb.db import ROOT, engine  # noqa: E402
+from ecb.basket import frequent_itemsets, one_hot  # noqa: E402
+from ecb.db import ROOT, connect, engine  # noqa: E402
 
 MIN_SUPPORT = 0.01
 MIN_CONFIDENCE = 0.5
 TABLES = ROOT / "docs" / "tables"
-
-
-def one_hot(lines: pd.DataFrame, min_support: float) -> pd.DataFrame:
-    """Order x product boolean matrix, keeping only individually frequent items (downward closure)."""
-    n_orders = lines["order_id"].nunique()
-    item_orders = lines.groupby("product_id")["order_id"].nunique()
-    keep = item_orders[item_orders >= min_support * n_orders].index
-    sub = lines[lines["product_id"].isin(keep)]
-    m = pd.crosstab(sub["order_id"], sub["product_id"]).gt(0)
-    # baskets with no frequent item still count in the denominator
-    empty = pd.DataFrame(False, index=pd.Index(sorted(set(lines["order_id"]) - set(m.index))), columns=m.columns)
-    return pd.concat([m, empty])
 
 
 def main() -> None:
@@ -40,15 +31,18 @@ def main() -> None:
     basket = one_hot(lines, MIN_SUPPORT)
     print(f"baskets {len(basket):,}; frequent single items {basket.shape[1]:,}")
 
-    itemsets = apriori(basket, min_support=MIN_SUPPORT, use_colnames=True, max_len=3,
-                       low_memory=True)  # dense mode needs ~5 GiB for the pair step
-    itemsets["size"] = itemsets["itemsets"].map(len)
+    itemsets = frequent_itemsets(basket, MIN_SUPPORT, max_len=3)
     print(itemsets["size"].value_counts().sort_index().rename("frequent itemsets by size").to_string())
+
+    # invariant: FP-Growth (no candidate generation) finds the same itemsets and supports
+    fp = frequent_itemsets(basket, MIN_SUPPORT, max_len=3, method="fpgrowth")
+    assert fp["key"].tolist() == itemsets["key"].tolist(), "Apriori and FP-Growth itemsets differ"
+    assert np.allclose(fp["support"], itemsets["support"], rtol=0, atol=1e-12)
+    print(f"check: {len(itemsets)} itemsets identical in Apriori and FP-Growth")
 
     # invariant: Apriori pair supports == SQL self-join view
     sql_pairs = pd.read_sql("SELECT product_a, product_b, support, pair_orders FROM vw_basket_pairs", eng)
     py_pairs = itemsets[itemsets["size"] == 2].copy()
-    py_pairs["key"] = py_pairs["itemsets"].map(lambda s: tuple(sorted(s)))
     sql_pairs["key"] = list(zip(sql_pairs["product_a"], sql_pairs["product_b"]))
     merged = sql_pairs.merge(py_pairs[["key", "support"]], on="key", how="outer", suffixes=("_sql", "_py"))
     assert merged["support_sql"].notna().all() and merged["support_py"].notna().all(), "pair sets differ"
@@ -70,10 +64,28 @@ def main() -> None:
     cats = products["category"]
     rules["same_category"] = [len({cats[i] for i in a | c}) == 1
                               for a, c in zip(rules["antecedents"], rules["consequents"])]
-    rules = rules.sort_values(["lift", "confidence"], ascending=False).reset_index(drop=True)
+
+    # invariant: rule metrics equal a direct recount on the basket matrix
+    X = basket.to_numpy()
+    col = {c: i for i, c in enumerate(basket.columns)}
+    share = lambda items: X[:, [col[i] for i in items]].all(axis=1).mean()  # noqa: E731
+    for r in rules.itertuples():
+        s_ab, s_a, s_b = share(r.antecedents | r.consequents), share(r.antecedents), share(r.consequents)
+        assert (abs(r.support - s_ab) < 1e-12 and abs(r.confidence - s_ab / s_a) < 1e-9
+                and abs(r.lift - s_ab / (s_a * s_b)) < 1e-9), (r.antecedent_ids, r.consequent_ids)
+    print(f"check: support, confidence and lift of all {len(rules)} rules match a direct recount")
+
+    # ids break ties so the row order is reproducible
+    rules = rules.sort_values(["lift", "confidence", "antecedent_ids", "consequent_ids"],
+                              ascending=[False, False, True, True]).reset_index(drop=True)
     out = rules[["if_bought", "then_also", "antecedent_ids", "consequent_ids", "n_items", "orders",
                  "support", "confidence", "lift", "same_category"]]
-    out.to_sql("basket_rules", eng, if_exists="replace", index=False)
+    with connect() as conn:
+        conn.execute("TRUNCATE basket_rules")
+        with conn.cursor() as cur:
+            cur.executemany(
+                f"INSERT INTO basket_rules ({', '.join(out.columns)}) VALUES ({', '.join(['%s'] * out.shape[1])})",
+                [tuple(v.item() if hasattr(v, "item") else v for v in row) for row in out.itertuples(index=False)])
     TABLES.mkdir(parents=True, exist_ok=True)
     out.round(4).to_csv(TABLES / "basket_rules.csv", index=False)
     print(f"rules with confidence >= {MIN_CONFIDENCE}: {len(rules)}; "
@@ -83,7 +95,8 @@ def main() -> None:
     pairs = rules[rules["n_items"] == 2].copy()
     pairs["pair"] = [tuple(sorted(a | c)) for a, c in zip(rules.loc[pairs.index, "antecedents"],
                                                           rules.loc[pairs.index, "consequents"])]
-    top = pairs.sort_values("confidence", ascending=False).drop_duplicates("pair").nlargest(12, "lift")
+    top = (pairs.sort_values(["confidence", "antecedent_ids"], ascending=[False, True]).drop_duplicates("pair")
+           .sort_values(["lift", "confidence", "pair"], ascending=[False, False, True]).head(12))
     print(top[["if_bought", "then_also", "orders", "confidence", "lift"]].round(3).to_string(index=False))
 
     fig, ax = ps.plt.subplots(figsize=(9, 5.6))

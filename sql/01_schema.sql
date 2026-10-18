@@ -51,6 +51,21 @@ CREATE TABLE customer_predictions (
     scored_at          timestamptz  NOT NULL DEFAULT now()
 );
 
+CREATE TABLE basket_rules (                  -- written by scripts/04_basket.py
+    if_bought       text             NOT NULL,
+    then_also       text             NOT NULL,
+    antecedent_ids  text             NOT NULL,   -- comma-separated sorted product_ids
+    consequent_ids  text             NOT NULL,
+    n_items         integer          NOT NULL CHECK (n_items >= 2),
+    orders          integer          NOT NULL CHECK (orders > 0),
+    support         double precision NOT NULL CHECK (support > 0 AND support <= 1),
+    confidence      double precision NOT NULL CHECK (confidence >= 0.5 AND confidence <= 1),   -- MIN_CONFIDENCE
+    lift            double precision NOT NULL CHECK (lift > 0),
+    same_category   boolean          NOT NULL,
+    PRIMARY KEY (antecedent_ids, consequent_ids),
+    CHECK (antecedent_ids <> '' AND consequent_ids <> '' AND antecedent_ids <> consequent_ids)
+);
+
 COMMENT ON COLUMN customer_predictions.risk_tier IS 'Low < 0.5 <= Medium < 0.8 <= High on churn_probability; Dormant = no order in the 365 days before features_as_of (not scored).';
 
 CREATE INDEX ix_orders_customer_ts ON orders (customer_id, order_timestamp);

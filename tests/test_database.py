@@ -68,6 +68,50 @@ def test_basket_pairs_metrics_are_consistent():
     assert one("SELECT count(*) FROM vw_basket_pairs")[0] > 0
 
 
+def test_basket_rules_match_a_recount_in_sql():
+    n_rules = one("SELECT count(*) FROM basket_rules")[0]
+    assert n_rules > 0
+    # recount every rule's itemset, antecedent and consequent from order_items
+    bad = one("""
+        WITH basket AS (SELECT DISTINCT order_id, product_id FROM order_items),
+        n AS (SELECT count(DISTINCT order_id)::float AS n FROM basket),
+        r AS (SELECT *, string_to_array(NULLIF(antecedent_ids, ''), ',') AS a,
+                     string_to_array(NULLIF(consequent_ids, ''), ',') AS c
+              FROM basket_rules),
+        sets AS (SELECT antecedent_ids, consequent_ids, 'ab' AS part, a || c AS items FROM r
+                 UNION ALL SELECT antecedent_ids, consequent_ids, 'a', a FROM r
+                 UNION ALL SELECT antecedent_ids, consequent_ids, 'c', c FROM r),
+        members AS (SELECT antecedent_ids, consequent_ids, part, cardinality(items) AS k,
+                           unnest(items) AS product_id FROM sets),
+        hits AS (SELECT m.antecedent_ids, m.consequent_ids, m.part
+                 FROM members m JOIN basket b USING (product_id)
+                 GROUP BY m.antecedent_ids, m.consequent_ids, m.part, m.k, b.order_id
+                 HAVING count(DISTINCT b.product_id) = m.k),   -- order contains every item of the set
+        cnt AS (SELECT antecedent_ids, consequent_ids,
+                       count(*) FILTER (WHERE part = 'ab') AS n_ab,
+                       count(*) FILTER (WHERE part = 'a')  AS n_a,
+                       count(*) FILTER (WHERE part = 'c')  AS n_c
+                FROM hits GROUP BY antecedent_ids, consequent_ids)
+        SELECT count(*) FROM r LEFT JOIN cnt USING (antecedent_ids, consequent_ids), n
+        WHERE r.a IS NULL OR r.c IS NULL OR r.a && r.c   -- empty or overlapping sides
+           OR cardinality(r.a || r.c) <> (SELECT count(DISTINCT x) FROM unnest(r.a || r.c) x)   -- repeated ids
+           OR cnt.n_ab IS NULL OR r.orders <> cnt.n_ab OR r.n_items <> cardinality(r.a || r.c)
+           OR abs(r.support - cnt.n_ab / n.n) > 1e-9
+           OR abs(r.confidence - cnt.n_ab::float / NULLIF(cnt.n_a, 0)) > 1e-9
+           OR abs(r.lift - cnt.n_ab * n.n / NULLIF(cnt.n_a::float * cnt.n_c, 0)) > 1e-6
+           OR r.confidence < 0.5 OR r.support < 0.01""")
+    assert bad[0] == 0
+    # 2-item rules agree with the SQL pair view
+    assert one("SELECT count(*) FROM basket_rules WHERE n_items = 2")[0] > 0
+    assert one("""SELECT count(*) FROM basket_rules r JOIN vw_basket_pairs p
+                  ON p.product_a = LEAST(r.antecedent_ids, r.consequent_ids)
+                 AND p.product_b = GREATEST(r.antecedent_ids, r.consequent_ids)
+                  WHERE r.n_items = 2 AND r.orders <> p.pair_orders""")[0] == 0
+    assert one("SELECT count(*) FROM basket_rules WHERE n_items = 2")[0] == one(
+        "SELECT count(*) FROM basket_rules r JOIN vw_basket_pairs p ON p.product_a = LEAST(r.antecedent_ids, "
+        "r.consequent_ids) AND p.product_b = GREATEST(r.antecedent_ids, r.consequent_ids) WHERE r.n_items = 2")[0]
+
+
 def test_predictions_cover_every_customer():
     n, cust, bad_p, dormant_with_p = one("""
         SELECT count(*), (SELECT count(*) FROM customers),

@@ -109,7 +109,12 @@ Customers with fewer than 3 purchase days are kept out of K-Means rather than gi
 
 Apriori (`mlxtend`) runs on the order × product matrix at min support 1% (366 orders). It finds 562 frequent items, 259 pairs and 52 triples, giving 249 rules at confidence ≥ 0.5.
 
-**Invariant check:** the script asserts that all 259 frequent pairs, and their supports, are identical in the SQL view and in Apriori. Two independent implementations agree.
+**Invariant checks:** the script asserts that
+- all 259 frequent pairs, and their supports, are identical in the SQL view and in Apriori;
+- FP-Growth, which mines without generating candidates, finds the same 873 itemsets (pairs and triples included) with the same supports;
+- support, confidence and lift of all 249 rules equal a direct recount on the order × product matrix.
+
+The 1% threshold is applied as an exact order count (366 of 36,594), computed in decimal arithmetic as the SQL view does, so floating-point rounding cannot drop an itemset that sits exactly on the threshold. Apriori runs in mlxtend's low-memory mode: the default mode builds an orders × candidate-pairs matrix of about 5 GiB, which does not fit on an 8 GB machine.
 
 ![Top bundles](docs/figures/basket_top_bundles.png)
 
@@ -203,13 +208,14 @@ $env:DATABASE_URL = 'postgresql://postgres:retail@localhost:5433/retail'
 
 **DBeaver:** add a PostgreSQL connection to `localhost:5433`, database `retail`, user `postgres` (no password for the local cluster; `retail` for Docker). Then open `sql/03_dbeaver_workbook.sql`.
 
-**Tests** (18):
-- unit tests for the keyword categoriser, Hosmer-Lemeshow (against a hand computation) and VIF;
+**Tests** (24):
+- unit tests for the keyword categoriser, Hosmer-Lemeshow (against a hand computation), VIF, the support threshold (itemsets exactly at the threshold are kept by both Apriori and FP-Growth), and triple mining plus rule confidence and lift on a hand-built basket;
 - database invariant tests, including:
   - RFM totals reconcile with the base tables;
   - `fn_customer_rfm` does not look ahead past its cut-off;
   - churn labels match their definition;
   - basket metrics stay within bounds;
+  - every rule in `basket_rules` matches a recount from `order_items` in SQL, and 2-item rules match `vw_basket_pairs`;
   - every customer has exactly one prediction, with a tier consistent with its probability.
 
 ## Limitations
