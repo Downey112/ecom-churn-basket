@@ -184,7 +184,7 @@ py -3.13 -m venv .venv
 .\run_all.ps1          # fetch -> load -> segment -> basket -> churn -> tests (~5 min)
 ```
 
-With Docker:
+With Docker (tested with Docker Desktop 4.95 on Windows 11; gives the same results as the local cluster). Both use port 5433, so stop the local cluster first (`.\scripts\local_pg.ps1 stop`):
 
 ```bash
 docker compose up -d

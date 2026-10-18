@@ -40,7 +40,8 @@ def main() -> None:
     basket = one_hot(lines, MIN_SUPPORT)
     print(f"baskets {len(basket):,}; frequent single items {basket.shape[1]:,}")
 
-    itemsets = apriori(basket, min_support=MIN_SUPPORT, use_colnames=True, max_len=3)
+    itemsets = apriori(basket, min_support=MIN_SUPPORT, use_colnames=True, max_len=3,
+                       low_memory=True)  # dense mode needs ~5 GiB for the pair step
     itemsets["size"] = itemsets["itemsets"].map(len)
     print(itemsets["size"].value_counts().sort_index().rename("frequent itemsets by size").to_string())
 
