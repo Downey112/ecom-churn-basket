@@ -193,6 +193,14 @@ for s in 01_fetch_data 02_load_db 03_segment 04_basket 05_churn; do python scrip
 pytest -q tests
 ```
 
+The same in PowerShell (`run_all.ps1` skips the local cluster when `DATABASE_URL` is set):
+
+```powershell
+docker compose up -d --wait
+$env:DATABASE_URL = 'postgresql://postgres:retail@localhost:5433/retail'
+.\run_all.ps1
+```
+
 **DBeaver:** add a PostgreSQL connection to `localhost:5433`, database `retail`, user `postgres` (no password for the local cluster; `retail` for Docker). Then open `sql/03_dbeaver_workbook.sql`.
 
 **Tests** (18):
