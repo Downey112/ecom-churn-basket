@@ -1,0 +1,23 @@
+# PostgreSQL for the project, the way the brief specifies (Docker).
+# docker compose up -d   ->  then run the pipeline with
+#   DATABASE_URL=postgresql://postgres:retail@localhost:5433/retail
+# The schema and views are created by scripts/02_load_db.py, not by an init script,
+# so a reload always rebuilds them from sql/.
+services:
+  db:
+    image: postgres:16
+    container_name: ecom-churn-basket-db
+    environment:
+      POSTGRES_DB: retail
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: retail
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d retail"]
+      interval: 5s
+      retries: 10
+volumes:
+  pgdata:

@@ -1,0 +1,4 @@
+model,auc,pr_auc,brier,accuracy@0.5,precision@0.5,recall@0.5,top_decile_churn_rate,hl_chi2,hl_df,hl_p
+Recency-only logistic (baseline),0.684,0.8034,0.2024,0.683,0.6912,0.9592,0.8391,79.7695,8,0.0
+Logistic regression,0.7555,0.8407,0.1777,0.7441,0.7404,0.9564,0.8966,61.8318,8,0.0
+Decision tree,0.7418,0.8201,0.1811,0.7395,0.7353,0.9598,0.8874,59.3645,8,0.0

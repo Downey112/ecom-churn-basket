@@ -1,0 +1,5 @@
+cluster_id,persona,customers,median_recency_days,median_orders,median_spend,median_order_value,median_gap_days,revenue,revenue_share
+0,Too little history,2683,312.404,1.0,325.74,239.12,127.0,1587083.67,0.093
+1,New regular,529,23.299,4.0,1213.16,257.84,38.0,787494.34,0.0461
+2,Lapsing,1590,87.322,5.0,1276.115,258.515,115.1665,2364665.18,0.1385
+3,Loyal high-value,1050,21.378,14.0,5681.85,406.825,48.9,12329324.78,0.7223

@@ -1,0 +1,15 @@
+,vif_full_set,vif_final_set
+ipt_mean_days,3.46,1.92
+log_aov,464.17,1.23
+log_distinct_products,2.29,2.11
+log_frequency,815.26,
+log_ipt_sd,14.61,2.63
+log_items_per_order,3.38,
+log_monetary,1679.24,
+log_monetary_90d,4.26,
+log_purchase_rate,2.38,2.13
+log_recency,4.7,2.38
+lt3_purchase_days,19.38,
+one_purchase_day,13.31,2.72
+orders_90d,2.59,1.71
+tenure_days,7.06,2.84

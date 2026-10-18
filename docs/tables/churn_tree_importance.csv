@@ -1,0 +1,15 @@
+,importance
+orders_90d,0.5425
+log_purchase_rate,0.2653
+log_monetary,0.159
+log_recency,0.0241
+log_ipt_sd,0.0091
+log_frequency,0.0
+log_items_per_order,0.0
+log_aov,0.0
+tenure_days,0.0
+log_distinct_products,0.0
+log_monetary_90d,0.0
+ipt_mean_days,0.0
+one_purchase_day,0.0
+lt3_purchase_days,0.0
